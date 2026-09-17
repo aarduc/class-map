@@ -306,11 +306,27 @@ function mail(){
    <p class="lede">Sends through your own Apps Script web app, using your school Gmail. Roster data is never stored in this page or in the repository.</p>
    <div class="warn"><b>Not connected.</b> Open Settings and enter your web app URL and access code. Until then this panel stays empty — it will not invent a roster.</div>
    <p class="note">Your <span class="code">AOS G11 Advisory Family Mailer</span> already reads <span class="code">All Students 8.26</span> and logs to <span class="code">Advisory Email Log</span>. It needs a <span class="code">doGet</span>/<span class="code">doPost</span> wrapper answering <span class="code">ping</span>, <span class="code">roster</span> and <span class="code">list</span> before this page can drive it.</p>`;
-  return `<h2>Family email</h2><p class="lede">Connected. Choose a class, then load guardians.</p>
-   <div class="bar2"><div class="field"><label for="mcls">Class</label><select id="mcls">${
-     COURSES.map(x=>`<option value="${x}">${esc(CNAME[x])}</option>`).join('')}</select></div>
-   <button class="act" id="loadr">Load guardians</button></div>
-   <div id="mlog" class="note"></div>`;
+  const cls=G('mcls')||'advisory';
+  return `<h2>Family email</h2>
+   <p class="lede">Sends one personalised message per guardian, from your school Gmail, and writes every send to <span class="code">Advisory Email Log</span>. Student addresses are never used.</p>
+   <div class="bar2">
+    <div class="field"><label for="mcls">Class</label><select id="mcls">${
+      COURSES.map(x=>`<option value="${x}"${x===cls?' selected':''}>${esc(CNAME[x])}</option>`).join('')}</select></div>
+    <button class="ghost" id="loadr">Load guardians</button>
+   </div>
+   <div class="field" style="margin-bottom:10px"><label for="msubj">Subject</label>
+    <input id="msubj" type="text" value="${esc(G('msubj'))}" placeholder="Week 6 update for {{student}}"></div>
+   <div class="field" style="margin-bottom:6px"><label for="mbody">Message</label>
+    <textarea id="mbody" rows="11" style="background:var(--plane);color:var(--ink);border:1px solid var(--ring);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;line-height:1.55">${esc(G('mbody'))}</textarea></div>
+   <p class="note" style="margin-bottom:14px">Placeholders: <span class="code">{{student}}</span> <span class="code">{{guardian}}</span> <span class="code">{{grade}}</span> <span class="code">{{class}}</span>. Line breaks become paragraphs. Basic HTML is allowed.</p>
+   <div class="bar2">
+    <button class="ghost" id="mtest">Send one to me</button>
+    <button class="ghost" id="mdry">Dry run — who would get this</button>
+    <button class="act" id="msend">Send to class</button>
+   </div>
+   <div id="mlog" class="note" style="margin-top:12px"></div>
+   <div id="mlist"></div>
+   <div class="warn"><b>There is no undo.</b> Use <i>Send one to me</i> first and read the result in your own inbox. <i>Dry run</i> lists recipients without sending anything.</div>`;
 }
 function settings(){
   return `<h2>Settings</h2><p class="lede">Stored in this browser only. Nothing here is written to the repository.</p>
@@ -352,13 +368,54 @@ function bind(){
   if(sv)sv.onclick=()=>{S('url',document.getElementById('url').value.trim());
     S('code',document.getElementById('code').value.trim());ping();
     sv.textContent='Saved';setTimeout(()=>sv.textContent='Save and test',1400)};
+  const mc=document.getElementById('mcls');
+  if(mc)mc.onchange=e=>S('mcls',e.target.value);
+  const sj=document.getElementById('msubj'),bd=document.getElementById('mbody');
+  if(sj)sj.oninput=e=>S('msubj',e.target.value);
+  if(bd)bd.oninput=e=>S('mbody',e.target.value);
+  const say=t=>{const l=document.getElementById('mlog');if(l)l.textContent=t};
+  const compose=()=>({cls:document.getElementById('mcls').value,
+    subject:document.getElementById('msubj').value.trim(),
+    html:document.getElementById('mbody').value.trim()
+      .split(/\n{2,}/).map(p=>'<p>'+p.replace(/\n/g,'<br>')+'</p>').join('')});
   const lr=document.getElementById('loadr');
-  if(lr)lr.onclick=()=>{const c=document.getElementById('mcls').value;
-    document.getElementById('mlog').textContent='Loading…';
+  if(lr)lr.onclick=()=>{const c=document.getElementById('mcls').value;say('Loading…');
     svcGet('list','&cls='+encodeURIComponent(c)+'&to=guardians').then(j=>{
-      document.getElementById('mlog').textContent=
-        (j&&j.ok)?((j.rows||[]).length+' guardian addresses found.'):'The service answered: '+((j&&j.error)||'no');
-    }).catch(()=>document.getElementById('mlog').textContent='Could not reach the service.')};
+      if(!j||!j.ok)return say('The service answered: '+((j&&j.error)||'no'));
+      say((j.rows||[]).length+' guardian addresses found.');
+      document.getElementById('mlist').innerHTML=
+        '<table><thead><tr><th>Guardian</th><th>Email</th><th>Student</th></tr></thead><tbody>'+
+        (j.rows||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}</td></tr>`).join('')+
+        '</tbody></table>';
+    }).catch(()=>say('Could not reach the service.'))};
+  const mt=document.getElementById('mtest');
+  if(mt)mt.onclick=()=>{const c=compose();
+    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    say('Sending one to you…');
+    svcPost(Object.assign({action:'send',testOnly:true},c)).then(j=>
+      say(j&&j.ok?('Sent to you. Check your inbox — quota now '+j.quota+'.'):'Refused: '+((j&&j.error)||'no')))
+      .catch(()=>say('Could not reach the service.'))};
+  const md=document.getElementById('mdry');
+  if(md)md.onclick=()=>{const c=compose();
+    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    say('Checking…');
+    svcPost(Object.assign({action:'send',dryRun:true},c)).then(j=>{
+      if(!j||!j.ok)return say('Refused: '+((j&&j.error)||'no'));
+      say(j.would+' guardians would receive this. Nothing was sent.');
+      document.getElementById('mlist').innerHTML=
+        '<table><thead><tr><th>Would go to</th><th>For student</th></tr></thead><tbody>'+
+        (j.sample||[]).map(r=>`<tr><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}</td></tr>`).join('')+
+        `</tbody></table><p class="note">First ${(j.sample||[]).length} of ${j.would}.</p>`;
+    }).catch(()=>say('Could not reach the service.'))};
+  const ms=document.getElementById('msend');
+  if(ms)ms.onclick=()=>{const c=compose();
+    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    if(!confirm('Send this to every guardian in '+CNAME[c.cls]+'?\n\nThis cannot be undone.'))return;
+    say('Sending…');ms.disabled=true;
+    svcPost(Object.assign({action:'send'},c)).then(j=>{ms.disabled=false;
+      say(j&&j.ok?('Sent '+j.sent+(j.failed?', '+j.failed+' failed':'')+'. Batch '+j.batch+' is in the log. Quota now '+j.quota+'.')
+        :'Refused: '+((j&&j.error)||'no'))})
+      .catch(()=>{ms.disabled=false;say('Could not reach the service.')})};
 }
 paintTheme();shell();render();ping();
 </script>
