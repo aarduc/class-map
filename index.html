@@ -306,14 +306,15 @@ function mail(){
    <p class="lede">Sends through your own Apps Script web app, using your school Gmail. Roster data is never stored in this page or in the repository.</p>
    <div class="warn"><b>Not connected.</b> Open Settings and enter your web app URL and access code. Until then this panel stays empty — it will not invent a roster.</div>
    <p class="note">Your <span class="code">AOS G11 Advisory Family Mailer</span> already reads <span class="code">All Students 8.26</span> and logs to <span class="code">Advisory Email Log</span>. It needs a <span class="code">doGet</span>/<span class="code">doPost</span> wrapper answering <span class="code">ping</span>, <span class="code">roster</span> and <span class="code">list</span> before this page can drive it.</p>`;
-  const cls=G('mcls')||'advisory';
+  const sel=(G('mcls')||'advisory').split(',').filter(Boolean);
   return `<h2>Family email</h2>
    <p class="lede">Sends one personalised message per guardian, from your school Gmail, and writes every send to <span class="code">Advisory Email Log</span>. Student addresses are never used.</p>
-   <div class="bar2">
-    <div class="field"><label for="mcls">Class</label><select id="mcls">${
-      COURSES.map(x=>`<option value="${x}"${x===cls?' selected':''}>${esc(CNAME[x])}</option>`).join('')}</select></div>
-    <button class="ghost" id="loadr">Load guardians</button>
-   </div>
+   <label style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700">Classes</label>
+   <div class="picks" style="margin:6px 0 10px">${
+     COURSES.map(x=>`<label><input type="checkbox" class="ccls" value="${x}"${sel.indexOf(x)>=0?' checked':''}> ${esc(CNAME[x])}</label>`).join('')}
+     <button class="ghost" id="callc" style="padding:3px 9px">All six</button></div>
+   <div class="bar2"><button class="ghost" id="loadr">Load guardians</button>
+     <span class="note" id="cnote">Each guardian is emailed once, however many of these classes their children are in.</span></div>
    <div class="field" style="margin-bottom:10px"><label for="msubj">Subject</label>
     <input id="msubj" type="text" value="${esc(G('msubj'))}" placeholder="Week 6 update for {{student}}"></div>
    <div class="field" style="margin-bottom:6px"><label for="mbody">Message</label>
@@ -368,25 +369,50 @@ function bind(){
   if(sv)sv.onclick=()=>{S('url',document.getElementById('url').value.trim());
     S('code',document.getElementById('code').value.trim());ping();
     sv.textContent='Saved';setTimeout(()=>sv.textContent='Save and test',1400)};
-  const mc=document.getElementById('mcls');
-  if(mc)mc.onchange=e=>S('mcls',e.target.value);
+  const chosen=()=>[...document.querySelectorAll('.ccls:checked')].map(c=>c.value);
+  document.querySelectorAll('.ccls').forEach(c=>c.onchange=()=>S('mcls',chosen().join(',')));
+  const ca=document.getElementById('callc');
+  if(ca)ca.onclick=()=>{document.querySelectorAll('.ccls').forEach(c=>c.checked=true);
+    S('mcls',chosen().join(','));};
   const sj=document.getElementById('msubj'),bd=document.getElementById('mbody');
   if(sj)sj.oninput=e=>S('msubj',e.target.value);
   if(bd)bd.oninput=e=>S('mbody',e.target.value);
   const say=t=>{const l=document.getElementById('mlog');if(l)l.textContent=t};
-  const compose=()=>({cls:document.getElementById('mcls').value,
+  const compose=()=>({cls:chosen(),
     subject:document.getElementById('msubj').value.trim(),
     html:document.getElementById('mbody').value.trim()
       .split(/\n{2,}/).map(p=>'<p>'+p.replace(/\n/g,'<br>')+'</p>').join('')});
   const lr=document.getElementById('loadr');
-  if(lr)lr.onclick=()=>{const c=document.getElementById('mcls').value;say('Loading…');
-    svcGet('list','&cls='+encodeURIComponent(c)+'&to=guardians').then(j=>{
+  const drawList=rows=>{
+    window.__rows=rows;
+    document.getElementById('mlist').innerHTML=
+      `<div class="bar2" style="margin:14px 0 6px"><button class="ghost" id="mall">Select all</button>
+       <button class="ghost" id="mnone">Select none</button>
+       <span class="note" id="mcount"></span></div>
+      <table><thead><tr><th style="width:38px"></th><th>Guardian</th><th>Email</th><th>Student</th></tr></thead><tbody>`+
+      rows.map((r,i)=>`<tr><td><input type="checkbox" class="mchk" data-e="${esc(r.to)}" checked></td>
+        <td>${esc(r.name)}</td><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}${r.n>1?' <span class="pid">('+r.n+')</span>':''}</td></tr>`).join('')+
+      '</tbody></table>';
+    const upd=()=>{const n=document.querySelectorAll('.mchk:checked').length;
+      document.getElementById('mcount').textContent=n+' of '+rows.length+' selected';};
+    document.querySelectorAll('.mchk').forEach(c=>c.onchange=upd);
+    document.getElementById('mall').onclick=()=>{document.querySelectorAll('.mchk').forEach(c=>c.checked=true);upd()};
+    document.getElementById('mnone').onclick=()=>{document.querySelectorAll('.mchk').forEach(c=>c.checked=false);upd()};
+    upd();
+  };
+  const skipMap=()=>{const s={};
+    document.querySelectorAll('.mchk').forEach(c=>{if(!c.checked)s[c.dataset.e.toLowerCase()]=1});
+    return s};
+  if(lr)lr.onclick=()=>{const c=chosen();
+    if(!c.length)return say('Tick at least one class.');
+    say('Loading…');
+    svcGet('list','&cls='+encodeURIComponent(c.join(','))+'&to=guardians').then(j=>{
       if(!j||!j.ok)return say('The service answered: '+((j&&j.error)||'no'));
-      say((j.rows||[]).length+' guardian addresses found.');
-      document.getElementById('mlist').innerHTML=
-        '<table><thead><tr><th>Guardian</th><th>Email</th><th>Student</th></tr></thead><tbody>'+
-        (j.rows||[]).map(r=>`<tr><td>${esc(r.name)}</td><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}</td></tr>`).join('')+
-        '</tbody></table>';
+      const multi=(j.rows||[]).filter(r=>r.n>1).length;
+      say((j.rows||[]).length+' guardians, each listed once'+
+        (multi?' — '+multi+' of them have more than one of your students':'')+
+        '. Untick anyone who should not receive this.');
+      drawList(j.rows||[]);
     }).catch(()=>say('Could not reach the service.'))};
   const mt=document.getElementById('mtest');
   if(mt)mt.onclick=()=>{const c=compose();
@@ -399,20 +425,16 @@ function bind(){
   if(md)md.onclick=()=>{const c=compose();
     if(!c.subject||!c.html)return say('Add a subject and a message first.');
     say('Checking…');
-    svcPost(Object.assign({action:'send',dryRun:true},c)).then(j=>{
+    svcPost(Object.assign({action:'send',dryRun:true,skip:skipMap()},c)).then(j=>{
       if(!j||!j.ok)return say('Refused: '+((j&&j.error)||'no'));
       say(j.would+' guardians would receive this. Nothing was sent.');
-      document.getElementById('mlist').innerHTML=
-        '<table><thead><tr><th>Would go to</th><th>For student</th></tr></thead><tbody>'+
-        (j.sample||[]).map(r=>`<tr><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}</td></tr>`).join('')+
-        `</tbody></table><p class="note">First ${(j.sample||[]).length} of ${j.would}.</p>`;
     }).catch(()=>say('Could not reach the service.'))};
   const ms=document.getElementById('msend');
   if(ms)ms.onclick=()=>{const c=compose();
     if(!c.subject||!c.html)return say('Add a subject and a message first.');
-    if(!confirm('Send this to every guardian in '+CNAME[c.cls]+'?\n\nThis cannot be undone.'))return;
+    if(!confirm('Send this to '+(document.querySelectorAll('.mchk:checked').length||'all')+' guardians across '+c.cls.length+' class(es)?\n\nThis cannot be undone.'))return;
     say('Sending…');ms.disabled=true;
-    svcPost(Object.assign({action:'send'},c)).then(j=>{ms.disabled=false;
+    svcPost(Object.assign({action:'send',skip:skipMap()},c)).then(j=>{ms.disabled=false;
       say(j&&j.ok?('Sent '+j.sent+(j.failed?', '+j.failed+' failed':'')+'. Batch '+j.batch+' is in the log. Quota now '+j.quota+'.')
         :'Refused: '+((j&&j.error)||'no'))})
       .catch(()=>{ms.disabled=false;say('Could not reach the service.')})};
