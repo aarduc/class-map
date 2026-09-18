@@ -154,6 +154,11 @@ const VIEWS=[
  {id:'mail',n:'Family email',g:'roster'},
  {id:'set',n:'Settings',g:'connection'}];
 const COURSES=['advisory','geo','csp','alg2','act','qr'];
+const ADMINS=[
+ {n:'Amalia Gunn',   e:'gunn@lisaacademy.org'},
+ {n:'Amalia Gunn',   e:'amgunn@lisaacademy.org'},
+ {n:'Krystle Hula',  e:'hula@lisaacademy.org'},
+ {n:'Krystle Hula',  e:'khula@lisaacademy.org'}];
 const CNAME={advisory:'Advisory (G11)',geo:'Pre-AP Geometry',csp:'AP CSP',alg2:'Algebra 2',act:'ACT Math',qr:'Quantitative Reasoning'};
 let view=G('view')||'over', tab=0, q='';
 
@@ -359,6 +364,21 @@ function mail(){
    </div>
    <div class="ed" id="mbody" contenteditable="true" data-ph="Write your message here…">${G('mbody')}</div>
    <p class="note" style="margin:6px 0 14px">Placeholders are replaced per family. Ctrl+B, Ctrl+I and Ctrl+U work as usual.</p>
+   <label style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700">Copy to administrators</label>
+   <div class="picks" style="margin:6px 0 4px">${ADMINS.map(a=>
+     `<label><input type="checkbox" class="adm" value="${a.e}"${G('adm').split(',').indexOf(a.e)>=0?' checked':''}> ${esc(a.n)} <span class="pid">${esc(a.e)}</span></label>`).join('')}</div>
+   <div class="picks" style="margin:0 0 4px">
+     <label><input type="radio" name="admmode" value="summary"${G('admmode')!=='cc'?' checked':''}> One summary copy <span class="pid">recommended</span></label>
+     <label><input type="radio" name="admmode" value="cc"${G('admmode')==='cc'?' checked':''}> CC on every message</label>
+   </div>
+   <p class="note" style="margin:0 0 14px" id="admwarn"></p>
+   <label style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700">Attachments</label>
+   <div class="bar2" style="margin:6px 0 4px">
+     <button class="ghost" id="mattach">Add files…</button>
+     <input type="file" id="mfiles" multiple style="display:none">
+     <span class="note" id="mattinfo">None. Anything attached is copied to your Documents Uploaded folder.</span>
+   </div>
+   <div id="mattlist" style="margin-bottom:14px"></div>
    <div class="bar2">
     <button class="ghost" id="mtest">Send one to me</button>
     <button class="ghost" id="msched">Schedule…</button>
@@ -409,6 +429,18 @@ function bind(){
     S('code',document.getElementById('code').value.trim());ping();
     sv.textContent='Saved';setTimeout(()=>sv.textContent='Save and test',1400)};
   const chosen=()=>[...document.querySelectorAll('.ccls:checked')].map(c=>c.value);
+  const admins=()=>[...document.querySelectorAll('.adm:checked')].map(c=>c.value);
+  const admMode=()=>{const r=document.querySelector('input[name=admmode]:checked');
+    return r?r.value:'summary'};
+  const admWarn=()=>{const w=document.getElementById('admwarn');if(!w)return;
+    const n=document.querySelectorAll('.mchk:checked').length;
+    w.textContent = admMode()==='cc'
+      ? (admins().length? 'Each administrator will receive '+(n||'every')+' separate copies — one per family.' : '')
+      : (admins().length? 'Administrators receive one summary with the message and the recipient list.' : '');
+    w.style.color = admMode()==='cc' && admins().length ? 'var(--bad)' : 'var(--muted)';};
+  document.querySelectorAll('.adm').forEach(c=>c.onchange=()=>{S('adm',admins().join(','));admWarn()});
+  document.querySelectorAll('input[name=admmode]').forEach(r=>r.onchange=()=>{S('admmode',admMode());admWarn()});
+  admWarn();
   const relabel=()=>{const b=document.getElementById('msend');
     if(b)b.textContent='Review and send'+(chosen().length>1?' to '+chosen().length+' classes':'')};
   document.querySelectorAll('.ccls').forEach(c=>c.onchange=()=>{S('mcls',chosen().join(','));relabel()});
@@ -418,8 +450,22 @@ function bind(){
     S('mcls',chosen().join(','));relabel();};
   const sj=document.getElementById('msubj'),bd=document.getElementById('mbody');
   if(sj)sj.oninput=e=>S('msubj',e.target.value);
+  const doLink=()=>{
+    const sel=window.getSelection();
+    const has=sel && !sel.isCollapsed && bd.contains(sel.anchorNode);
+    const txt=has?String(sel):'';
+    const u=prompt(has?('Link address for “'+txt.slice(0,40)+'”'):'Link address','https://');
+    if(!u)return;
+    bd.focus();
+    if(has)document.execCommand('createLink',false,u);
+    else{const label=prompt('Text to show',u)||u;
+      document.execCommand('insertHTML',false,
+        '<a href="'+u.replace(/"/g,'&quot;')+'">'+esc(label)+'</a>&nbsp;')}
+    S('mbody',bd.innerHTML)};
   if(bd){
     bd.oninput=()=>S('mbody',bd.innerHTML);
+    bd.addEventListener('keydown',e=>{
+      if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();doLink()}});
     bd.addEventListener('paste',e=>{e.preventDefault();
       const txt=(e.clipboardData||window.clipboardData).getData('text/plain');
       document.execCommand('insertText',false,txt)});
@@ -428,12 +474,11 @@ function bind(){
       if(b.dataset.cmd)document.execCommand(b.dataset.cmd,false,null);
       else if(b.dataset.block)document.execCommand('formatBlock',false,b.dataset.block);
       else if(b.dataset.ph)document.execCommand('insertText',false,b.dataset.ph);
-      else if(b.dataset.link){const u=prompt('Link address','https://');
-        if(u)document.execCommand('createLink',false,u)}
+      else if(b.dataset.link)doLink();
       S('mbody',bd.innerHTML)});
   }
   const say=t=>{const l=document.getElementById('mlog');if(l)l.textContent=t};
-  const compose=()=>({cls:chosen(),
+  const compose=()=>({cls:chosen(),admin:admins(),adminMode:admMode(),files:window.__att||[],
     subject:document.getElementById('msubj').value.trim(),
     html:document.getElementById('mbody').innerHTML.trim()});
   const lr=document.getElementById('loadr');
@@ -448,7 +493,7 @@ function bind(){
         <td>${esc(r.name)}</td><td class="pid">${esc(r.to)}</td><td>${esc(r.student)}${r.n>1?' <span class="pid">('+r.n+')</span>':''}</td></tr>`).join('')+
       '</tbody></table>';
     const upd=()=>{const n=document.querySelectorAll('.mchk:checked').length;
-      document.getElementById('mcount').textContent=n+' of '+rows.length+' selected';};
+      document.getElementById('mcount').textContent=n+' of '+rows.length+' selected';admWarn()};
     document.querySelectorAll('.mchk').forEach(c=>c.onchange=upd);
     document.getElementById('mall').onclick=()=>{document.querySelectorAll('.mchk').forEach(c=>c.checked=true);upd()};
     document.getElementById('mnone').onclick=()=>{document.querySelectorAll('.mchk').forEach(c=>c.checked=false);upd()};
@@ -475,6 +520,30 @@ function bind(){
     svcPost(Object.assign({action:'send',testOnly:true},c)).then(j=>
       say(j&&j.ok?('Sent to you. Check your inbox — quota now '+j.quota+'.'):'Refused: '+((j&&j.error)||'no')))
       .catch(()=>say('Could not reach the service.'))};
+  window.__att=window.__att||[];
+  const attInfo=()=>{
+    const tot=window.__att.reduce((a,f)=>a+f.size,0);
+    const i=document.getElementById('mattinfo');
+    if(i)i.textContent=window.__att.length
+      ? window.__att.length+' file'+(window.__att.length>1?'s':'')+', '+(tot/1048576).toFixed(1)+' MB'+
+        (tot>20*1048576?' — too large for Gmail, link from Drive instead':'')
+      : 'None. Anything attached is copied to your Documents Uploaded folder.';
+    if(i)i.style.color = tot>20*1048576 ? 'var(--bad)' : 'var(--muted)';
+    const l=document.getElementById('mattlist');
+    if(l)l.innerHTML=window.__att.map((f,n)=>
+      `<div class="note" style="padding:3px 0">${esc(f.name)} <span class="pid">${(f.size/1024).toFixed(0)} KB</span>
+       <a href="#" data-rm="${n}">remove</a></div>`).join('');
+    if(l)l.querySelectorAll('[data-rm]').forEach(a=>a.onclick=ev=>{ev.preventDefault();
+      window.__att.splice(+a.dataset.rm,1);attInfo()});
+  };
+  const ab=document.getElementById('mattach'),fi=document.getElementById('mfiles');
+  if(ab&&fi){ab.onclick=()=>fi.click();
+    fi.onchange=()=>{[...fi.files].forEach(f=>{
+      const r=new FileReader();
+      r.onload=()=>{window.__att.push({name:f.name,type:f.type,size:f.size,
+        data:r.result.split(',')[1]});attInfo()};
+      r.readAsDataURL(f)});fi.value=''};
+    attInfo();}
   const shut=()=>{const m=document.querySelector('.modal');if(m)m.remove()};
   const ms=document.getElementById('msend');
   if(ms)ms.onclick=()=>{const c=compose();
@@ -488,7 +557,9 @@ function bind(){
       d.innerHTML=`<div class="sheet"><h3>Send to ${j.count} guardian${j.count===1?'':'s'}?</h3>
         <p class="note">${esc(j.label)} · shown as <b>${esc(j.gname||j.to)}</b> will receive it. Everyone else gets their own names filled in.</p>
         <div class="mailprev"><div class="hdr">From ${esc(G('who')||'you')}<b>${esc(j.subject)}</b></div>${j.html}</div>
-        <p class="note">Quota today: ${j.quota}. This cannot be undone.</p>
+        <p class="note">${(window.__att||[]).length?'Attached: '+window.__att.map(f=>esc(f.name)).join(', ')+'<br>':''}${admins().length?(admMode()==='cc'
+            ? '<b style="color:var(--bad)">'+admins().join(', ')+' will be CC\'d on all '+j.count+' messages.</b><br>'
+            : 'Summary copy to '+admins().join(', ')+'.<br>'):''}Quota today: ${j.quota}. This cannot be undone.</p>
         <div class="row"><button class="act" id="pgo">Send now</button>
           <button class="ghost" id="pno">Back</button></div></div>`;
       document.body.appendChild(d);
