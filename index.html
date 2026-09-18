@@ -99,6 +99,18 @@ select,input[type=text],input[type=url],input[type=password]{background:var(--pl
 .nlsec p,.nlsec li{font-size:11.8px;line-height:1.45;color:#252b36}
 .nlsec ul{margin:0;padding-left:15px}
 @media(max-width:840px){.nlcols{grid-template-columns:1fr}.barrow{grid-template-columns:1fr}.barlab{text-align:left}}
+.etb{display:flex;gap:2px;flex-wrap:wrap;border:1px solid var(--ring);border-bottom:0;
+ border-radius:8px 8px 0 0;padding:5px 6px;background:var(--surface)}
+.etb button{border:0;background:none;color:var(--ink2);font:inherit;font-size:13px;min-width:30px;
+ height:28px;border-radius:5px;cursor:pointer;padding:0 7px}
+.etb button:hover{background:var(--grid)}
+.etb b{font-weight:800}.etb i{font-style:italic}.etb u{text-decoration:underline}
+.etb .sep{width:1px;background:var(--ring);margin:3px 4px}
+.ed{border:1px solid var(--ring);border-radius:0 0 8px 8px;background:var(--plane);color:var(--ink);
+ padding:11px 13px;min-height:190px;font-size:13.5px;line-height:1.6;overflow-y:auto}
+.ed:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.ed p{margin:0 0 .7em}.ed ul,.ed ol{margin:0 0 .7em;padding-left:22px}
+.ed:empty:before{content:attr(data-ph);color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(10,14,22,.55);display:flex;align-items:flex-start;
  justify-content:center;padding:36px 18px;z-index:50;overflow:auto}
 .sheet{background:var(--surface);border-radius:15px;max-width:680px;width:100%;padding:22px 24px;
@@ -328,9 +340,25 @@ function mail(){
      <span class="note" id="cnote">Each guardian is emailed once, however many of these classes their children are in.</span></div>
    <div class="field" style="margin-bottom:10px"><label for="msubj">Subject</label>
     <input id="msubj" type="text" value="${esc(G('msubj'))}" placeholder="Week 6 update for {{student}}"></div>
-   <div class="field" style="margin-bottom:6px"><label for="mbody">Message</label>
-    <textarea id="mbody" rows="11" style="background:var(--plane);color:var(--ink);border:1px solid var(--ring);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;line-height:1.55">${esc(G('mbody'))}</textarea></div>
-   <p class="note" style="margin-bottom:14px">Placeholders: <span class="code">{{student}}</span> <span class="code">{{guardian}}</span> <span class="code">{{grade}}</span> <span class="code">{{class}}</span>. Line breaks become paragraphs. Basic HTML is allowed.</p>
+   <label style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700">Message</label>
+   <div class="etb" style="margin-top:4px">
+     <button data-cmd="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+     <button data-cmd="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+     <button data-cmd="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+     <span class="sep"></span>
+     <button data-cmd="insertUnorderedList" title="Bulleted list">&bull;&nbsp;List</button>
+     <button data-cmd="insertOrderedList" title="Numbered list">1.&nbsp;List</button>
+     <span class="sep"></span>
+     <button data-block="h3" title="Heading">Heading</button>
+     <button data-block="p" title="Normal text">Normal</button>
+     <span class="sep"></span>
+     <button data-link="1" title="Insert link">Link</button>
+     <button data-cmd="removeFormat" title="Clear formatting">Clear</button>
+     <span class="sep"></span>
+     ${['student','guardian','grade','class'].map(p=>`<button data-ph="{{${p}}}" title="Insert ${p} placeholder">{{${p}}}</button>`).join('')}
+   </div>
+   <div class="ed" id="mbody" contenteditable="true" data-ph="Write your message here…">${G('mbody')}</div>
+   <p class="note" style="margin:6px 0 14px">Placeholders are replaced per family. Ctrl+B, Ctrl+I and Ctrl+U work as usual.</p>
    <div class="bar2">
     <button class="ghost" id="mtest">Send one to me</button>
     <button class="ghost" id="msched">Schedule…</button>
@@ -390,12 +418,24 @@ function bind(){
     S('mcls',chosen().join(','));relabel();};
   const sj=document.getElementById('msubj'),bd=document.getElementById('mbody');
   if(sj)sj.oninput=e=>S('msubj',e.target.value);
-  if(bd)bd.oninput=e=>S('mbody',e.target.value);
+  if(bd){
+    bd.oninput=()=>S('mbody',bd.innerHTML);
+    bd.addEventListener('paste',e=>{e.preventDefault();
+      const txt=(e.clipboardData||window.clipboardData).getData('text/plain');
+      document.execCommand('insertText',false,txt)});
+    document.querySelectorAll('.etb button').forEach(b=>b.onclick=e=>{
+      e.preventDefault();bd.focus();
+      if(b.dataset.cmd)document.execCommand(b.dataset.cmd,false,null);
+      else if(b.dataset.block)document.execCommand('formatBlock',false,b.dataset.block);
+      else if(b.dataset.ph)document.execCommand('insertText',false,b.dataset.ph);
+      else if(b.dataset.link){const u=prompt('Link address','https://');
+        if(u)document.execCommand('createLink',false,u)}
+      S('mbody',bd.innerHTML)});
+  }
   const say=t=>{const l=document.getElementById('mlog');if(l)l.textContent=t};
   const compose=()=>({cls:chosen(),
     subject:document.getElementById('msubj').value.trim(),
-    html:document.getElementById('mbody').value.trim()
-      .split(/\n{2,}/).map(p=>'<p>'+p.replace(/\n/g,'<br>')+'</p>').join('')});
+    html:document.getElementById('mbody').innerHTML.trim()});
   const lr=document.getElementById('loadr');
   const drawList=rows=>{
     window.__rows=rows;
@@ -430,7 +470,7 @@ function bind(){
     }).catch(()=>say('Could not reach the service.'))};
   const mt=document.getElementById('mtest');
   if(mt)mt.onclick=()=>{const c=compose();
-    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    if(!c.subject||!c.html||c.html==='<br>')return say('Add a subject and a message first.');
     say('Sending one to you…');
     svcPost(Object.assign({action:'send',testOnly:true},c)).then(j=>
       say(j&&j.ok?('Sent to you. Check your inbox — quota now '+j.quota+'.'):'Refused: '+((j&&j.error)||'no')))
@@ -439,7 +479,7 @@ function bind(){
   const ms=document.getElementById('msend');
   if(ms)ms.onclick=()=>{const c=compose();
     if(!c.cls.length)return say('Tick at least one class.');
-    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    if(!c.subject||!c.html||c.html==='<br>')return say('Add a subject and a message first.');
     say('Building preview…');
     svcPost(Object.assign({action:'send',preview:true,skip:skipMap()},c)).then(j=>{
       if(!j||!j.ok)return say('Refused: '+((j&&j.error)||'no'));
@@ -465,7 +505,7 @@ function bind(){
   const sc=document.getElementById('msched');
   if(sc)sc.onclick=()=>{const c=compose();
     if(!c.cls.length)return say('Tick at least one class.');
-    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    if(!c.subject||!c.html||c.html==='<br>')return say('Add a subject and a message first.');
     const now=new Date(Date.now()-new Date().getTimezoneOffset()*60000+3600000);
     const d=document.createElement('div');d.className='modal';
     d.innerHTML=`<div class="sheet"><h3>Schedule this message</h3>
