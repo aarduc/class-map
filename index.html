@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231D5FA8'/%3E%3Cpath d='M14 46V18h7l11 17 11-17h7v28h-7V31l-8 12h-6l-8-12v15z' fill='%23fff'/%3E%3C/svg%3E">
 <title>Class Map — LISA Academy Arkansas Online School</title>
 <style>
 :root{
@@ -98,6 +99,16 @@ select,input[type=text],input[type=url],input[type=password]{background:var(--pl
 .nlsec p,.nlsec li{font-size:11.8px;line-height:1.45;color:#252b36}
 .nlsec ul{margin:0;padding-left:15px}
 @media(max-width:840px){.nlcols{grid-template-columns:1fr}.barrow{grid-template-columns:1fr}.barlab{text-align:left}}
+.modal{position:fixed;inset:0;background:rgba(10,14,22,.55);display:flex;align-items:flex-start;
+ justify-content:center;padding:36px 18px;z-index:50;overflow:auto}
+.sheet{background:var(--surface);border-radius:15px;max-width:680px;width:100%;padding:22px 24px;
+ border:1px solid var(--ring)}
+.sheet h3{margin:0 0 3px;font-size:19px;letter-spacing:-.01em}
+.mailprev{background:#fff;color:#151922;border:1px solid var(--ring);border-radius:10px;
+ padding:15px 17px;margin:13px 0;font-size:13.5px;line-height:1.55}
+.mailprev .hdr{border-bottom:1px solid #e7ebf2;padding-bottom:9px;margin-bottom:11px;font-size:12px;color:#5d6675}
+.mailprev .hdr b{color:#151922;font-size:14px;display:block;margin-top:3px}
+.sheet .row{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}
 @media print{.shellbar,.bar2,.picks,.tabs{display:none}.nlpage{border:0;padding:0}}
 </style>
 </head>
@@ -164,7 +175,7 @@ function ping(){
   paintSync('','checking…');
   svcGet('ping').then(j=>{
     if(!j||!j.ok)return paintSync('err',(j&&j.error)||'refused');
-    paintSync('ok',(j.who||'connected')+(j.quota!=null?' · '+j.quota+' emails left':''));
+    S('who',j.who||'');paintSync('ok',(j.who||'connected')+(j.quota!=null?' · '+j.quota+' emails left':''));
   }).catch(()=>paintSync('err','offline'));
 }
 
@@ -305,7 +316,7 @@ function mail(){
   if(!svcReady())return `<h2>Family email</h2>
    <p class="lede">Sends through your own Apps Script web app, using your school Gmail. Roster data is never stored in this page or in the repository.</p>
    <div class="warn"><b>Not connected.</b> Open Settings and enter your web app URL and access code. Until then this panel stays empty — it will not invent a roster.</div>
-   <p class="note">Your <span class="code">AOS G11 Advisory Family Mailer</span> already reads <span class="code">All Students 8.26</span> and logs to <span class="code">Advisory Email Log</span>. It needs a <span class="code">doGet</span>/<span class="code">doPost</span> wrapper answering <span class="code">ping</span>, <span class="code">roster</span> and <span class="code">list</span> before this page can drive it.</p>`;
+   <p class="note">Connection settings live in this browser only, so each device you use needs them entered once.</p>`;
   const sel=(G('mcls')||'advisory').split(',').filter(Boolean);
   return `<h2>Family email</h2>
    <p class="lede">Sends one personalised message per guardian, from your school Gmail, and writes every send to <span class="code">Advisory Email Log</span>. Student addresses are never used.</p>
@@ -322,8 +333,8 @@ function mail(){
    <p class="note" style="margin-bottom:14px">Placeholders: <span class="code">{{student}}</span> <span class="code">{{guardian}}</span> <span class="code">{{grade}}</span> <span class="code">{{class}}</span>. Line breaks become paragraphs. Basic HTML is allowed.</p>
    <div class="bar2">
     <button class="ghost" id="mtest">Send one to me</button>
-    <button class="ghost" id="mdry">Dry run — who would get this</button>
-    <button class="act" id="msend">Send to class</button>
+    <button class="ghost" id="msched">Schedule…</button>
+    <button class="act" id="msend">Review and send</button>
    </div>
    <div id="mlog" class="note" style="margin-top:12px"></div>
    <div id="mlist"></div>
@@ -370,10 +381,13 @@ function bind(){
     S('code',document.getElementById('code').value.trim());ping();
     sv.textContent='Saved';setTimeout(()=>sv.textContent='Save and test',1400)};
   const chosen=()=>[...document.querySelectorAll('.ccls:checked')].map(c=>c.value);
-  document.querySelectorAll('.ccls').forEach(c=>c.onchange=()=>S('mcls',chosen().join(',')));
+  const relabel=()=>{const b=document.getElementById('msend');
+    if(b)b.textContent='Review and send'+(chosen().length>1?' to '+chosen().length+' classes':'')};
+  document.querySelectorAll('.ccls').forEach(c=>c.onchange=()=>{S('mcls',chosen().join(','));relabel()});
+  relabel();
   const ca=document.getElementById('callc');
   if(ca)ca.onclick=()=>{document.querySelectorAll('.ccls').forEach(c=>c.checked=true);
-    S('mcls',chosen().join(','));};
+    S('mcls',chosen().join(','));relabel();};
   const sj=document.getElementById('msubj'),bd=document.getElementById('mbody');
   if(sj)sj.oninput=e=>S('msubj',e.target.value);
   if(bd)bd.oninput=e=>S('mbody',e.target.value);
@@ -421,23 +435,66 @@ function bind(){
     svcPost(Object.assign({action:'send',testOnly:true},c)).then(j=>
       say(j&&j.ok?('Sent to you. Check your inbox — quota now '+j.quota+'.'):'Refused: '+((j&&j.error)||'no')))
       .catch(()=>say('Could not reach the service.'))};
-  const md=document.getElementById('mdry');
-  if(md)md.onclick=()=>{const c=compose();
-    if(!c.subject||!c.html)return say('Add a subject and a message first.');
-    say('Checking…');
-    svcPost(Object.assign({action:'send',dryRun:true,skip:skipMap()},c)).then(j=>{
-      if(!j||!j.ok)return say('Refused: '+((j&&j.error)||'no'));
-      say(j.would+' guardians would receive this. Nothing was sent.');
-    }).catch(()=>say('Could not reach the service.'))};
+  const shut=()=>{const m=document.querySelector('.modal');if(m)m.remove()};
   const ms=document.getElementById('msend');
   if(ms)ms.onclick=()=>{const c=compose();
+    if(!c.cls.length)return say('Tick at least one class.');
     if(!c.subject||!c.html)return say('Add a subject and a message first.');
-    if(!confirm('Send this to '+(document.querySelectorAll('.mchk:checked').length||'all')+' guardians across '+c.cls.length+' class(es)?\n\nThis cannot be undone.'))return;
-    say('Sending…');ms.disabled=true;
-    svcPost(Object.assign({action:'send',skip:skipMap()},c)).then(j=>{ms.disabled=false;
-      say(j&&j.ok?('Sent '+j.sent+(j.failed?', '+j.failed+' failed':'')+'. Batch '+j.batch+' is in the log. Quota now '+j.quota+'.')
-        :'Refused: '+((j&&j.error)||'no'))})
-      .catch(()=>{ms.disabled=false;say('Could not reach the service.')})};
+    say('Building preview…');
+    svcPost(Object.assign({action:'send',preview:true,skip:skipMap()},c)).then(j=>{
+      if(!j||!j.ok)return say('Refused: '+((j&&j.error)||'no'));
+      say('');
+      const d=document.createElement('div');d.className='modal';
+      d.innerHTML=`<div class="sheet"><h3>Send to ${j.count} guardian${j.count===1?'':'s'}?</h3>
+        <p class="note">${esc(j.label)} · shown as <b>${esc(j.gname||j.to)}</b> will receive it. Everyone else gets their own names filled in.</p>
+        <div class="mailprev"><div class="hdr">From ${esc(G('who')||'you')}<b>${esc(j.subject)}</b></div>${j.html}</div>
+        <p class="note">Quota today: ${j.quota}. This cannot be undone.</p>
+        <div class="row"><button class="act" id="pgo">Send now</button>
+          <button class="ghost" id="pno">Back</button></div></div>`;
+      document.body.appendChild(d);
+      d.onclick=e=>{if(e.target===d)shut()};
+      document.getElementById('pno').onclick=shut;
+      document.getElementById('pgo').onclick=()=>{
+        const b=document.getElementById('pgo');b.disabled=true;b.textContent='Sending…';
+        svcPost(Object.assign({action:'send',skip:skipMap()},c)).then(r=>{shut();
+          say(r&&r.ok?('Sent '+r.sent+(r.failed?', '+r.failed+' failed':'')+'. Batch '+r.batch+' is in the log. Quota now '+r.quota+'.')
+            :'Refused: '+((r&&r.error)||'no'))})
+          .catch(()=>{shut();say('Could not reach the service.')})};
+    }).catch(()=>say('Could not reach the service.'))};
+
+  const sc=document.getElementById('msched');
+  if(sc)sc.onclick=()=>{const c=compose();
+    if(!c.cls.length)return say('Tick at least one class.');
+    if(!c.subject||!c.html)return say('Add a subject and a message first.');
+    const now=new Date(Date.now()-new Date().getTimezoneOffset()*60000+3600000);
+    const d=document.createElement('div');d.className='modal';
+    d.innerHTML=`<div class="sheet"><h3>Schedule this message</h3>
+      <p class="note">Your script sends it at the chosen time, whether or not this page is open. Times are your school's timezone.</p>
+      <div class="field" style="margin:14px 0"><label for="swhen">Send at</label>
+        <input id="swhen" type="datetime-local" value="${now.toISOString().slice(0,16)}"></div>
+      <div id="sjobs" class="note"></div>
+      <div class="row"><button class="act" id="sgo">Schedule</button>
+        <button class="ghost" id="sno">Back</button></div></div>`;
+    document.body.appendChild(d);
+    d.onclick=e=>{if(e.target===d)shut()};
+    document.getElementById('sno').onclick=shut;
+    const refresh=()=>svcPost({action:'scheduled'}).then(j=>{
+      const el=document.getElementById('sjobs');if(!el)return;
+      el.innerHTML=(j&&j.jobs&&j.jobs.length)
+        ?'<b>Already scheduled</b><br>'+j.jobs.map(x=>
+          `${esc(x.when)} — ${esc(x.subject)} <a href="#" data-cancel="${esc(x.id)}">cancel</a>`).join('<br>')
+        :'Nothing scheduled yet.';
+      el.querySelectorAll('[data-cancel]').forEach(a=>a.onclick=ev=>{ev.preventDefault();
+        svcPost({action:'cancel',id:a.dataset.cancel}).then(refresh)});
+    });
+    refresh();
+    document.getElementById('sgo').onclick=()=>{
+      const b=document.getElementById('sgo');b.disabled=true;b.textContent='Scheduling…';
+      svcPost(Object.assign({action:'schedule',when:document.getElementById('swhen').value,
+        skip:skipMap()},c)).then(j=>{shut();
+        say(j&&j.ok?('Scheduled for '+j.when+'. Cancel it from Schedule… before then.')
+          :'Refused: '+((j&&j.error)||'no'))})
+        .catch(()=>{shut();say('Could not reach the service.')})};};
 }
 paintTheme();shell();render();ping();
 </script>
